@@ -1468,6 +1468,8 @@
         updateBadges();
         renderDashboard();
         renderInventory();
+        if (typeof updateWithdrawDropdowns === 'function') updateWithdrawDropdowns();
+        if (typeof updateImportDropdowns === 'function') updateImportDropdowns();
 
         if (showToast) {
           Swal.fire({
@@ -1650,16 +1652,36 @@
       const tbody = document.getElementById('withdrawItemsBody');
       if (tbody.children.length === 0) {
         addWithdrawRow();
+      } else {
+        updateWithdrawDropdowns();
       }
     }
 
     function addWithdrawRow(presetMatId = '') {
       const tbody = document.getElementById('withdrawItemsBody');
+      
+      // ดึงรหัสวัสดุที่ถูกเลือกไปแล้วในแถวอื่นๆ
+      const selectedIds = Array.from(tbody.querySelectorAll('select'))
+        .map(s => s.value)
+        .filter(v => v);
+
+      // ตรวจสอบว่ายังมีวัสดุที่ยังไม่ถูกเลือกเหลืออยู่หรือไม่
+      const availableMats = materialsList.filter(m => !selectedIds.includes(m.material_id) || m.material_id === presetMatId);
+      if (availableMats.length === 0 && !presetMatId) {
+        Swal.fire({
+          icon: 'info',
+          title: 'เลือกครบทุกรายการแล้ว',
+          text: 'วัสดุทั้งหมดในคลังถูกเลือกในแบบฟอร์มแล้ว หากต้องการเพิ่มจำนวน กรุณาปรับเพิ่มที่ช่องจำนวนของรายการเดิม',
+          confirmButtonColor: '#059669'
+        });
+        return;
+      }
+
       const rowIdx = tbody.children.length + 1;
       const tr = document.createElement('tr');
       tr.className = 'border-b border-slate-100';
 
-      const options = materialsList.map(m => `<option value="${m.material_id}" ${m.material_id === presetMatId ? 'selected' : ''}>${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`).join('');
+      const options = availableMats.map(m => `<option value="${m.material_id}" ${m.material_id === presetMatId ? 'selected' : ''}>${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`).join('');
 
       tr.innerHTML = `
         <td class="p-3 text-center text-slate-400 font-medium">${rowIdx}</td>
@@ -1680,7 +1702,7 @@
         </td>
         <td class="p-3 text-slate-500 unit-display">-</td>
         <td class="p-3 text-center">
-          <button type="button" onclick="removeWithdrawRow(this)" class="text-rose-500 hover:text-rose-700 p-1"><i class="fa-solid fa-trash"></i></button>
+          <button type="button" onclick="removeWithdrawRow(this)" class="text-rose-500 hover:text-rose-700 p-1" title="ลบแถว"><i class="fa-solid fa-trash"></i></button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -1688,7 +1710,35 @@
       if (presetMatId) {
         const select = tr.querySelector('select');
         onWithdrawItemChanged(select);
+      } else {
+        updateWithdrawDropdowns();
       }
+    }
+
+    function updateWithdrawDropdowns() {
+      const rows = document.querySelectorAll('#withdrawItemsBody tr');
+      const selectedIds = [];
+      rows.forEach(tr => {
+        const sel = tr.querySelector('select');
+        if (sel && sel.value) selectedIds.push(sel.value);
+      });
+
+      rows.forEach(tr => {
+        const sel = tr.querySelector('select');
+        if (!sel) return;
+        const currentVal = sel.value;
+
+        let html = '<option value="">-- เลือกวัสดุ --</option>';
+        materialsList.forEach(m => {
+          // หากรายการนี้ถูกเลือกในแถวอื่นแล้ว จะไม่แสดงในตัวเลือกของแถวนี้
+          if (selectedIds.includes(m.material_id) && m.material_id !== currentVal) {
+            return;
+          }
+          const isSel = (m.material_id === currentVal) ? 'selected' : '';
+          html += `<option value="${m.material_id}" ${isSel}>${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`;
+        });
+        sel.innerHTML = html;
+      });
     }
 
     function quickSelectWithdraw(matId) {
@@ -1720,6 +1770,9 @@
         tr.querySelector('.unit-display').textContent = '-';
         if (thumbBox) thumbBox.innerHTML = `<i class="fa-solid fa-box text-slate-300 text-xs"></i>`;
       }
+
+      // ปรับปรุง Dropdown ของแถวอื่นๆ ไม่ให้เลือกซ้ำ
+      updateWithdrawDropdowns();
     }
 
     function removeWithdrawRow(btn) {
@@ -1732,6 +1785,8 @@
       Array.from(tbody.children).forEach((tr, i) => {
         tr.children[0].textContent = i + 1;
       });
+      // คืนรายการที่เพิ่งลบกลับไปให้แถวอื่นเลือกได้อีกครั้ง
+      updateWithdrawDropdowns();
     }
 
     async function handleWithdrawSubmit(e) {
@@ -1741,6 +1796,8 @@
       const rows = document.querySelectorAll('#withdrawItemsBody tr');
 
       const items = [];
+      const seenIds = new Set();
+
       for (let tr of rows) {
         const select = tr.querySelector('select');
         const matId = select.value;
@@ -1749,13 +1806,23 @@
           Swal.fire({ icon: 'warning', title: 'ข้อมูลไม่ครบ', text: 'กรุณาเลือกวัสดุให้ครบทุกแถว' });
           return;
         }
+        if (seenIds.has(matId)) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'พบรายการซ้ำกัน',
+            text: `รายการที่เลือกซ้ำกัน กรุณารวมจำนวนในแถวเดิม`
+          });
+          return;
+        }
+        seenIds.add(matId);
+
         const mat = materialsList.find(m => m.material_id === matId);
         items.push({
           material_id: matId,
-          material_name: mat.name,
+          material_name: mat ? mat.name : matId,
           qty: qty,
-          unit: mat.units,
-          brand: mat.brand
+          unit: mat ? mat.units : 'ชิ้น',
+          brand: mat ? mat.brand : ''
         });
       }
 
@@ -3049,16 +3116,36 @@
       const tbody = document.getElementById('importItemsBody');
       if (tbody.children.length === 0) {
         addImportRow();
+      } else {
+        updateImportDropdowns();
       }
     }
 
     function addImportRow() {
       const tbody = document.getElementById('importItemsBody');
+      
+      // ดึงรหัสวัสดุที่ถูกเลือกไปแล้วในแถวอื่นๆ
+      const selectedIds = Array.from(tbody.querySelectorAll('select.mat-select'))
+        .map(s => s.value)
+        .filter(v => v);
+
+      // ตรวจสอบว่ายังมีวัสดุที่ยังไม่ถูกเลือกเหลืออยู่หรือไม่
+      const availableMats = materialsList.filter(m => !selectedIds.includes(m.material_id));
+      if (availableMats.length === 0) {
+        Swal.fire({
+          icon: 'info',
+          title: 'เลือกครบทุกรายการแล้ว',
+          text: 'วัสดุทั้งหมดในคลังถูกเลือกในแบบฟอร์มแล้ว หากต้องการเพิ่มจำนวน กรุณาปรับเพิ่มที่ช่องจำนวนของรายการเดิม',
+          confirmButtonColor: '#2563eb'
+        });
+        return;
+      }
+
       const rowIdx = tbody.children.length + 1;
       const tr = document.createElement('tr');
       tr.className = 'border-b border-slate-100';
 
-      const options = materialsList.map(m => `<option value="${m.material_id}">${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`).join('');
+      const options = availableMats.map(m => `<option value="${m.material_id}">${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`).join('');
 
       tr.innerHTML = `
         <td class="p-3 text-center text-slate-400 font-medium">${rowIdx}</td>
@@ -3082,11 +3169,38 @@
         </td>
         <td class="p-3 text-right font-semibold text-slate-800 subtotal-display">0.00</td>
         <td class="p-3 text-center">
-          <button type="button" onclick="removeImportRow(this)" class="text-rose-500 hover:text-rose-700 p-1"><i class="fa-solid fa-trash"></i></button>
+          <button type="button" onclick="removeImportRow(this)" class="text-rose-500 hover:text-rose-700 p-1" title="ลบแถว"><i class="fa-solid fa-trash"></i></button>
         </td>
       `;
       tbody.appendChild(tr);
       calculateImportTotals();
+      updateImportDropdowns();
+    }
+
+    function updateImportDropdowns() {
+      const rows = document.querySelectorAll('#importItemsBody tr');
+      const selectedIds = [];
+      rows.forEach(tr => {
+        const sel = tr.querySelector('select.mat-select');
+        if (sel && sel.value) selectedIds.push(sel.value);
+      });
+
+      rows.forEach(tr => {
+        const sel = tr.querySelector('select.mat-select');
+        if (!sel) return;
+        const currentVal = sel.value;
+
+        let html = '<option value="">-- เลือกรายการวัสดุ --</option>';
+        materialsList.forEach(m => {
+          // หากรายการนี้ถูกเลือกในแถวอื่นแล้ว จะไม่แสดงในตัวเลือกของแถวนี้
+          if (selectedIds.includes(m.material_id) && m.material_id !== currentVal) {
+            return;
+          }
+          const isSel = (m.material_id === currentVal) ? 'selected' : '';
+          html += `<option value="${m.material_id}" ${isSel}>${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`;
+        });
+        sel.innerHTML = html;
+      });
     }
 
     function removeImportRow(btn) {
@@ -3100,6 +3214,7 @@
         r.children[0].textContent = idx + 1;
       });
       calculateImportTotals();
+      updateImportDropdowns();
     }
 
     function onImportItemChanged(selectEl) {
@@ -3126,6 +3241,7 @@
         if (thumbBox) thumbBox.innerHTML = `<i class="fa-solid fa-box text-slate-300 text-xs"></i>`;
       }
       calculateImportTotals();
+      updateImportDropdowns();
     }
 
     function calculateImportTotals() {
@@ -3172,8 +3288,9 @@
 
       const tbody = document.getElementById('importItemsBody');
       const items = [];
+      const seenIds = new Set();
 
-      Array.from(tbody.children).forEach(tr => {
+      for (let tr of Array.from(tbody.children)) {
         const matId = tr.querySelector('.mat-select')?.value;
         const qty = parseFloat(tr.querySelector('.qty-input')?.value || 0);
         const price = parseFloat(tr.querySelector('.price-input')?.value || 0);
@@ -3181,6 +3298,16 @@
         const mat = materialsList.find(m => m.material_id === matId);
 
         if (matId && qty > 0) {
+          if (seenIds.has(matId)) {
+            Swal.fire({
+              icon: 'warning',
+              title: 'พบรายการซ้ำกัน',
+              text: `รายการที่เลือกซ้ำกัน กรุณารวมจำนวนในแถวเดิม`
+            });
+            return;
+          }
+          seenIds.add(matId);
+
           items.push({
             material_id: matId,
             material_name: mat ? mat.name : matId,
@@ -3189,7 +3316,7 @@
             price: price
           });
         }
-      });
+      }
 
       if (items.length === 0) {
         Swal.fire({ icon: 'warning', title: 'กรุณาเลือกรายการวัสดุและระบุจำนวนอย่างน้อย 1 รายการ' });
