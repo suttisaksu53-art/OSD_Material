@@ -221,7 +221,7 @@
         </div>
         <div>
           <h2 class="font-bold text-slate-800 text-sm leading-tight">ระบบจัดการวัสดุ <span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">V5.0</span></h2>
-          <span class="text-xs text-slate-500">สำนักวิทย์ฯ กรมพัฒนาที่ดิน </span>
+          <span class="text-xs text-slate-500">สำนักวิทย์ฯ พัฒนาที่ดิน (ระบบยอดจอง)</span>
         </div>
       </div>
 
@@ -256,7 +256,8 @@
           <span>ยื่นคำขอเบิกวัสดุ</span>
         </a>
 
-        <a onclick="navigate('import')" class="nav-item" data-page="import">
+        <!-- Menu for Import (Approver & Admin Only) -->
+        <a onclick="navigate('import')" id="menuImport" class="nav-item hidden" data-page="import">
           <i class="fa-solid fa-truck-ramp-box w-6"></i>
           <span>ยื่นขอนำเข้าพัสดุ</span>
         </a>
@@ -1414,6 +1415,8 @@
       const isApprover = user.role === 'approver' || isAdmin;
 
       document.getElementById('menuApprovals').classList.toggle('hidden', !isApprover);
+      const menuImportEl = document.getElementById('menuImport');
+      if (menuImportEl) menuImportEl.classList.toggle('hidden', !isApprover);
       const menuUsersEl = document.getElementById('menuUsers');
       if (menuUsersEl) menuUsersEl.classList.toggle('hidden', !isApprover);
       document.getElementById('adminMenuSection').classList.toggle('hidden', !isAdmin);
@@ -1430,6 +1433,19 @@
 
     // --- NAVIGATION ---
     function navigate(pageId) {
+      if (pageId === 'import') {
+        const isApprover = currentUser && (currentUser.role === 'approver' || currentUser.role === 'admin');
+        if (!isApprover) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'ไม่มีสิทธิ์เข้าถึง',
+            text: 'สิทธิ์การยื่นขอนำเข้า / ตรวจรับพัสดุ จำกัดเฉพาะระดับ Approver (ผู้อนุมัติ) หรือ Admin (ผู้ดูแลระบบ) เท่านั้น',
+            confirmButtonColor: '#059669'
+          });
+          return;
+        }
+      }
+
       const pages = ['dashboard', 'inventory', 'withdraw', 'import', 'approvals', 'myRequests', 'reports', 'users', 'departments'];
       pages.forEach(p => {
         const el = document.getElementById('page' + p.charAt(0).toUpperCase() + p.slice(1));
@@ -1980,6 +1996,7 @@
       try {
         const res = await callApi('submitRequest', {
           type: 'import',
+          role: currentUser.role,
           user_id: currentUser.user_id,
           user_name: currentUser.fullname,
           group_name: currentUser.group,
