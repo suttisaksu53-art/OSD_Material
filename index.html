@@ -220,8 +220,8 @@
           <i class="fa-solid fa-boxes-stacked"></i>
         </div>
         <div>
-          <h2 class="font-bold text-slate-800 text-sm leading-tight">ระบบจัดการวัสดุ</h2>
-          <span class="text-xs text-slate-500">สำนักวิทย์ฯ พัฒนาที่ดิน</span>
+          <h2 class="font-bold text-slate-800 text-sm leading-tight">ระบบจัดการวัสดุ <span class="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">V5.0</span></h2>
+          <span class="text-xs text-slate-500">สำนักวิทย์ฯ พัฒนาที่ดิน (ระบบยอดจอง)</span>
         </div>
       </div>
 
@@ -502,7 +502,7 @@
                       <tr class="bg-slate-100/75 text-slate-600 font-semibold border-b border-slate-200">
                         <th class="p-3 w-12 text-center">#</th>
                         <th class="p-3">เลือกรายการวัสดุ</th>
-                        <th class="p-3 w-32 text-center">คงเหลือในคลัง</th>
+                        <th class="p-3 w-36 text-center">พร้อมเบิก (ในคลัง)</th>
                         <th class="p-3 w-32 text-center">จำนวนที่ขอเบิก</th>
                         <th class="p-3 w-28">หน่วยนับ</th>
                         <th class="p-3 w-12 text-center">ลบ</th>
@@ -1310,14 +1310,23 @@
 
       try {
         const user = await callApi('login', { username: u, password: p });
+        
+        let displayName = (user.fullname && user.fullname.trim() !== '' && user.fullname !== user.username) 
+          ? user.fullname.trim() 
+          : (user.fullname || user.username);
+        if (displayName === 'admin') displayName = 'ผู้ดูแลระบบ (Admin)';
+        if (displayName === 'approver01') displayName = 'ดร.สุรชัย พัฒนาการ (ผู้อนุมัติ)';
+        if (displayName === 'user01') displayName = 'นายสมชาย ใจดี (ผู้เบิก)';
+        user.fullname = displayName;
+
         currentUser = user;
         localStorage.setItem('kstore_user', JSON.stringify(user));
         
         Swal.fire({
           icon: 'success',
-          title: 'เข้าสู่ระบบสำเร็จ',
-          text: `ยินดีต้อนรับ ${user.fullname}`,
-          timer: 1500,
+          title: `ยินดีต้อนรับ ${displayName}`,
+          text: 'เข้าสู่ระบบสำเร็จ',
+          timer: 1800,
           showConfirmButton: false
         });
 
@@ -1385,7 +1394,19 @@
       document.getElementById('authPage').classList.add('hidden');
       document.getElementById('mainApp').classList.remove('hidden');
 
-      document.getElementById('userNameDisplay').textContent = user.fullname || user.username;
+      let displayName = (user.fullname && user.fullname.trim() !== '' && user.fullname !== user.username) 
+        ? user.fullname.trim() 
+        : (user.fullname || user.username);
+      if (displayName === 'admin') displayName = 'ผู้ดูแลระบบ (Admin)';
+      if (displayName === 'approver01') displayName = 'ดร.สุรชัย พัฒนาการ (ผู้อนุมัติ)';
+      if (displayName === 'user01') displayName = 'นายสมชาย ใจดี (ผู้เบิก)';
+      user.fullname = displayName;
+
+      const userNameEl = document.getElementById('userNameDisplay');
+      if (userNameEl) {
+        userNameEl.textContent = displayName;
+        userNameEl.title = displayName;
+      }
       document.getElementById('userGroupDisplay').textContent = user.group || 'ไม่ระบุกลุ่มงาน';
       document.getElementById('userRoleBadge').textContent = user.role || 'user';
 
@@ -1620,9 +1641,16 @@
 
             <div class="pt-3 border-t border-slate-100 flex items-center justify-between">
               <div>
-                <span class="text-[10px] text-slate-400 block">คงเหลือ</span>
-                <span class="text-lg font-bold ${isLow ? 'text-rose-600' : 'text-slate-800'}">${m.qty}</span>
-                <span class="text-xs text-slate-500">${m.units}</span>
+                <div class="flex items-center gap-1.5 mb-1">
+                  <span class="text-[11px] font-bold ${((m.available_qty !== undefined ? m.available_qty : m.qty) <= 0) ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-800 border border-emerald-200'} px-2 py-0.5 rounded-md flex items-center gap-1">
+                    <i class="fa-solid ${((m.available_qty !== undefined ? m.available_qty : m.qty) <= 0) ? 'fa-lock text-rose-500' : 'fa-circle-check text-emerald-600'} text-[9px]"></i>
+                    พร้อมเบิก: ${m.available_qty !== undefined ? m.available_qty : m.qty} ${m.units}
+                  </span>
+                </div>
+                <div class="text-[11px] text-slate-500">
+                  คงคลังจริง: <span class="font-semibold text-slate-700">${m.qty}</span> ${m.units}
+                  ${(m.reserved_qty > 0) ? `<span class="text-amber-600 font-semibold ml-1">(รออนุมัติ ${m.reserved_qty})</span>` : ''}
+                </div>
               </div>
 
               <div class="flex items-center gap-1.5">
@@ -1681,7 +1709,13 @@
       const tr = document.createElement('tr');
       tr.className = 'border-b border-slate-100';
 
-      const options = availableMats.map(m => `<option value="${m.material_id}" ${m.material_id === presetMatId ? 'selected' : ''}>${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`).join('');
+      const options = availableMats.map(m => {
+        const avail = (m.available_qty !== undefined) ? m.available_qty : m.qty;
+        const res = m.reserved_qty || 0;
+        let badge = `(พร้อมเบิก: ${avail} ${m.units}${res > 0 ? ` / ในคลัง: ${m.qty}` : ''})`;
+        if (avail <= 0) badge = `[ติดจองหมดแล้ว (ในคลัง ${m.qty} ${m.units})]`;
+        return `<option value="${m.material_id}" ${m.material_id === presetMatId ? 'selected' : ''} ${avail <= 0 ? 'class="text-rose-500 font-semibold"' : ''}>${m.name} ${badge}</option>`;
+      }).join('');
 
       tr.innerHTML = `
         <td class="p-3 text-center text-slate-400 font-medium">${rowIdx}</td>
@@ -1735,13 +1769,29 @@
             return;
           }
           const isSel = (m.material_id === currentVal) ? 'selected' : '';
-          html += `<option value="${m.material_id}" ${isSel}>${m.name} (คงเหลือ: ${m.qty} ${m.units})</option>`;
+          const avail = (m.available_qty !== undefined) ? m.available_qty : m.qty;
+          const res = m.reserved_qty || 0;
+          let badge = `(พร้อมเบิก: ${avail} ${m.units}${res > 0 ? ` / ในคลัง: ${m.qty}` : ''})`;
+          if (avail <= 0) badge = `[ติดจองหมดแล้ว (ในคลัง ${m.qty} ${m.units})]`;
+          html += `<option value="${m.material_id}" ${isSel} ${avail <= 0 ? 'class="text-rose-500 font-semibold"' : ''}>${m.name} ${badge}</option>`;
         });
         sel.innerHTML = html;
       });
     }
 
     function quickSelectWithdraw(matId) {
+      const mat = materialsList.find(m => m.material_id === matId);
+      const avail = mat ? ((mat.available_qty !== undefined) ? mat.available_qty : mat.qty) : 0;
+      if (avail <= 0) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'ไม่สามารถขอเบิกได้',
+          text: `วัสดุ "${mat ? mat.name : matId}" ในคลังมียอดติดจองรออนุมัติเต็มจำนวนแล้ว หรือสินค้าหมด กรุณารอผลการอนุมัติรอบปัจจุบัน`,
+          confirmButtonColor: '#059669'
+        });
+        return;
+      }
+
       navigate('withdraw');
       const tbody = document.getElementById('withdrawItemsBody');
       tbody.innerHTML = '';
@@ -1755,10 +1805,32 @@
       const thumbBox = tr.querySelector('.row-thumb-box');
 
       if (mat) {
-        tr.querySelector('.cur-stock-display').textContent = mat.qty;
+        const avail = (mat.available_qty !== undefined) ? mat.available_qty : mat.qty;
+        const res = mat.reserved_qty || 0;
+        
+        let stockHtml = `<div class="font-bold text-xs ${avail <= 0 ? 'text-rose-600' : 'text-emerald-700'}">${avail} ${mat.units}</div>`;
+        if (res > 0) {
+          stockHtml += `<div class="text-[10px] text-amber-600 font-medium leading-tight">(คลัง ${mat.qty} / รออนุมัติ ${res})</div>`;
+        } else {
+          stockHtml += `<div class="text-[10px] text-slate-400 font-normal leading-tight">คงคลังจริง ${mat.qty}</div>`;
+        }
+        tr.querySelector('.cur-stock-display').innerHTML = stockHtml;
         tr.querySelector('.unit-display').textContent = mat.units;
+
         const qtyInp = tr.querySelector('.qty-input');
-        qtyInp.max = mat.qty;
+        qtyInp.max = avail;
+        if (avail <= 0) {
+          qtyInp.value = 0;
+          qtyInp.disabled = true;
+          qtyInp.title = 'วัสดุนี้ไม่มียอดพร้อมเบิก (ติดจองรออนุมัติหรือสินค้าหมด)';
+        } else {
+          qtyInp.disabled = false;
+          qtyInp.title = `สามารถขอเบิกได้สูงสุด ${avail} ${mat.units}`;
+          if (parseFloat(qtyInp.value) > avail || parseFloat(qtyInp.value) <= 0) {
+            qtyInp.value = 1;
+          }
+        }
+
         if (mat.image_url) {
           const thumb = getThumbUrl(mat.image_url, 100);
           thumbBox.innerHTML = `<img src="${thumb}" class="w-full h-full object-cover cursor-pointer" onclick="openImageModal('${mat.image_url}', '${escapeHtml(mat.name)}')">`;
@@ -1817,6 +1889,19 @@
         seenIds.add(matId);
 
         const mat = materialsList.find(m => m.material_id === matId);
+        const avail = mat ? ((mat.available_qty !== undefined) ? mat.available_qty : mat.qty) : 0;
+        const res = mat ? (mat.reserved_qty || 0) : 0;
+
+        if (qty > avail) {
+          Swal.fire({
+            icon: 'warning',
+            title: 'ยอดพร้อมเบิกไม่เพียงพอ',
+            html: `วัสดุ <b>"${escapeHtml(mat ? mat.name : matId)}"</b> มีในคลัง ${mat ? mat.qty : 0} ${mat ? mat.units : ''}${res > 0 ? ` (ติดจองรออนุมัติ ${res} ${mat.units})` : ''}<br>จึงสามารถขอเบิกได้สูงสุดเพียง <b>${avail} ${mat ? mat.units : ''}</b> เท่านั้น`,
+            confirmButtonColor: '#059669'
+          });
+          return;
+        }
+
         items.push({
           material_id: matId,
           material_name: mat ? mat.name : matId,
@@ -1990,7 +2075,7 @@
                 <span class="text-slate-800 font-medium">${escapeHtml(it.material_name)}</span>
               </div>
               <div class="flex items-center gap-3">
-                ${isWithdraw ? `<span class="text-[11px] text-slate-400">(คงเหลือ: ${curQty})</span>` : ''}
+                ${isWithdraw ? `<span class="text-[11px] text-slate-400">(ในคลัง: ${curQty}, พร้อมเบิก: ${mat && mat.available_qty !== undefined ? mat.available_qty : curQty})</span>` : ''}
                 <span class="font-semibold ${isShort ? 'text-rose-600 font-bold' : 'text-slate-800'}">
                   ${it.qty} ${it.unit || ''}
                 </span>
